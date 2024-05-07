@@ -1,0 +1,75 @@
+---
+- hosts: rpi
+  become: true
+  name: Install RPI specific software and settings
+
+  tasks:
+    - name: Install log2ram
+      block:
+        - name: Add log2ram GPG key
+          apt_key:
+            url: https://azlux.fr/repo.gpg
+            keyring: /usr/share/keyrings/azlux-archive-keyring.gpg
+            state: present
+        - name: Add log2ram repository
+          apt_repository:
+            repo: 'deb [signed-by=/usr/share/keyrings/azlux-archive-keyring.gpg] http://packages.azlux.fr/debian/ bookworm main'
+            state: present
+        - name: Install log2ram
+          apt:
+            name: log2ram
+            state: present
+    
+    - name: System Optimalisations
+      block:
+        - name: Disable swap
+          command:
+            cmd: swapoff -a
+          when: ansible_swaptotal_mb > 0
+        - name: Remove swap from /etc/fstab
+          lineinfile:
+            path: /etc/fstab
+            state: absent
+            regexp: '^/swapfile'
+        - name: Blacklist RTL dongles
+          copy:
+            dest: /etc/modprobe.d/blacklist-rtl.conf
+            content: |
+              blacklist dvb_usb_rtl28xxu
+              blacklist rtl2832
+              blacklist rtl2830
+              blacklist r820t
+          register: blacklist
+        - name: Reboot after setting Blacklist RTL dongles
+          reboot:
+            reboot_timeout: 300
+            post_reboot_delay: 30
+            connect_timeout: 30
+            msg: "Rebooting to apply blacklist RTL dongles"
+          when: blacklist.changed
+
+    - name: Enable Watchdog
+      block:
+        - name: Install watchdog
+          apt:
+            name: watchdog
+            state: present
+        - name: Enable watchdog
+          systemd:
+            name: watchdog
+            enabled: yes
+            state: started
+            masked: no
+        - name: Configure watchdog
+          lineinfile:
+            path: /etc/systemd/system.conf
+            line: "{{ item }}"
+          with_items:
+            - "RuntimeWatchdogSec=10s"
+            - "ShutdownWatchdogSec=4min"
+    - name: Cronjob for package update and upgrade every day at 4am
+      cron:
+        name: "apt update"
+        minute: 0
+        hour: 4
+        job: "apt update -y && apt upgrade"

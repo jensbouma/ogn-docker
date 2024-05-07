@@ -1,0 +1,158 @@
+---
+- hosts: all
+  become: true
+  name: Install RTL-SDR OGN receiver
+  
+  vars_files:
+    - ./tf_ansible_vars_file.yml
+
+  tasks:
+    - name: Add group ogn
+      group: 
+        name: ogn
+    - name: Add user ogn
+      user: 
+        name: ogn 
+        group: ogn
+
+    - name: Install RTL-SDR and dependencies
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - libusb-1.0-0-dev
+        - libpng-dev
+        - libconfig-dev
+        - libfftw3-dev
+        - lynx
+        - telnet
+        - procserv
+        - ntp
+        - ntpdate
+        - cmake
+        - make
+        - git
+
+    - name: Get rtl-sdr repository
+      git: 
+        repo: "https://github.com/rtlsdrblog/rtl-sdr"
+        dest: "/opt/rtl-sdr"
+        update: yes
+      register: rtl_sdr_repo
+    - name: Install rtl-sdr
+      when: rtl_sdr_repo.changed
+      block:
+      - name: Create build directory
+        file:
+          path: /opt/rtl-sdr/build
+          state: directory
+          mode: 0755
+      - name: Cmake rtl-sdr
+        command:
+          cmd: cmake -B /opt/rtl-sdr/build -DCMAKE_INSTALL_PREFIX=/usr /opt/rtl-sdr
+      - name: make rtl-sdr
+        command:
+          cmd: make -C /opt/rtl-sdr/build
+      - name: make install rtl-sdr
+        command:
+          cmd: make install -C /opt/rtl-sdr/build
+
+    - name: download rtlsdr-ogn binary
+      get_url: 
+        url: "http://download.glidernet.org/arm64/rtlsdr-ogn-bin-arm64-latest.tgz" 
+        dest: "/opt/rtlsdr-ogn-bin-arm64-latest.tgz"
+      register: ogn_download
+    - name: Install rtlsdr-ogn
+      when: ogn_download.changed
+      block:
+      - name: delete old directory
+        file: 
+          path: "/opt/{{ item }}" 
+          state: absent
+        with_items:
+          - rtlsdr-ogn
+      - name: extract rtlsdr-ogn
+        unarchive: 
+          src: "/opt/rtlsdr-ogn-bin-arm64-latest.tgz" 
+          dest: "/opt/" 
+          creates: "/opt/rtlsdr-ogn"
+          copy: no 
+          owner: ogn 
+          group: ogn
+      - name: Check if FIFO file exists
+        stat:
+          path: /opt/rtlsdr-ogn/ogn-rf.fifo
+        register: fifo_file
+      - name: Create buffer if not exists
+        command:
+          cmd: mkfifo /opt/rtlsdr-ogn/ogn-rf.fifo
+        when: not fifo_file.stat.exists
+      - name: Check if EGM file exists
+        stat:
+          path: /opt/rtlsdr-ogn/WW15MGH.DAC
+        register: egm_file
+      - name: get EGM file if not exists
+        command: 
+          cmd: wget --no-check-certificate https://earth-info.nga.mil/GandG/wgs84/gravitymod/egm96/binary/WW15MGH.DAC -O /opt/rtlsdr-ogn/WW15MGH.DAC
+        when: not egm_file.stat.exists
+      - name: chown ogn:ogn
+        command: 
+          cmd: chown ogn:ogn /opt/rtlsdr-ogn/ogn-rf /opt/rtlsdr-ogn/gsm_scan /opt/rtlsdr-ogn/WW15MGH.DAC /opt/rtlsdr-ogn/ogn-rf.fifo
+      - name : chmod a+s ogn-rf gsm_scan
+        command:
+          cmd: chmod a+s /opt/rtlsdr-ogn/ogn-rf /opt/rtlsdr-ogn/gsm_scan
+      - name: write config file
+        copy:
+          dest: "/etc/rtlsdr-ogn.conf"
+          content: |
+            #shellbox configuration file
+            #Starts commands inside a "box" with a telnet-like server.
+            #Contact the shell with: telnet <hostname> <port>
+            #Syntax:
+            #port  user     directory       command      args
+
+            50000  ogn /opt/rtlsdr-ogn    ./ogn-rf     /opt/rtlsdr-ogn/{{receiver_name}}.conf
+            50001  ogn /opt/rtlsdr-ogn    ./ogn-decode /opt/rtlsdr-ogn/{{receiver_name}}.conf
+          owner: root
+          group: root
+          mode: 0644
+    - name: write setup file
+      copy:
+        dest: "/opt/rtlsdr-ogn/{{receiver_name}}.conf"
+        src:  "./tmp/ogn-config.conf"
+        owner: ogn
+        group: ogn
+        mode: 0644
+    
+    - name: create systemd service for ogn
+      copy: 
+        dest: "/etc/systemd/system/ogn.service" 
+
+        content: |
+            [Unit]
+            SourcePath=/opt/rtlsdr-ogn/rtlsdr-ogn
+            Description=OGN receiver
+            Wants=network-online.target
+            After=network-online.target
+
+            [Service]
+            Type=forking
+            Restart=no
+            IgnoreSIGPIPE=no
+            KillMode=process
+            GuessMainPID=no
+            RemainAfterExit=yes
+            SysVStartPriority=5
+            ExecStart=/opt/rtlsdr-ogn/rtlsdr-ogn start
+            ExecStop=/opt/rtlsdr-ogn/rtlsdr-ogn stop
+            ExecReload=/opt/rtlsdr-ogn/rtlsdr-ogn reload
+
+            [Install]
+            WantedBy=multi-user.target
+    - name: enable and start service
+      systemd: 
+        name: ogn
+        enabled: yes
+        state: started
+        masked: no
+

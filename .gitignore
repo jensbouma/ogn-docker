@@ -1,0 +1,4 @@
+tmp
+.terraform
+.terraform.lock.hcl
+ogn-config.json

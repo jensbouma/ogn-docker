@@ -1,0 +1,24 @@
+---
+- hosts: all
+  become: true
+  name: Install Portainer
+
+  tasks:
+    - name: Install Portainer
+      block:
+        - name: Create Portainer volume
+          docker_volume:
+            name: portainer_data
+        - name: Install Portainer
+          docker_container:
+            name: portainer
+            image: portainer/portainer-ce
+            state: started
+            restart_policy: always
+            ports:
+              - "9443:9443"
+              - "8000:8000"
+            volumes:
+              - /var/run/docker.sock:/var/run/docker.sock
+              - portainer_data:/data
+              - /:/host

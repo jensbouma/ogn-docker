@@ -1,0 +1,9 @@
+
+- import_playbook: rpi.yml
+- import_playbook: cloudflared.yml
+- import_playbook: docker.yml
+- import_playbook: portainer.yml
+
+# Choose between rtlsdr-ogn-docker.yml and rtlsdr-ogn.yml
+- import_playbook: rtlsdr-ogn-docker.yml
+# - import_playbook: rtlsdr-ogn.yml

@@ -1,0 +1,16 @@
+---
+- hosts: all
+  become: true
+  tasks:
+    - name: Copy rtlsdr-ogn-docker
+      copy:
+        dest: "/tmp"
+        src:  "../rtlsdr-ogn-docker"
+    - name: Copy ogn-config file
+      copy:
+        dest: "/var/local"
+        src:  "../tmp/ogn-config.json"
+    - name: Build rtlsdr-ogn docker-compose
+      command: "docker compose -f /tmp/rtlsdr-ogn-docker/docker-compose.yml build"
+    - name: Run rtlsdr-ogn
+      command: "docker compose -f /tmp/rtlsdr-ogn-docker/docker-compose.yml up -d"

@@ -1,0 +1,66 @@
+---
+- hosts: all
+  become: true
+  name: Install Cloudflared
+
+  vars_files:
+    - ./tf_ansible_vars_file.yml
+
+  tasks:  
+    - name: Install cloudflared
+      block:
+      - name: Add Cloudflare GPG key
+        apt_key:
+          url: https://pkg.cloudflare.com/cloudflare-main.gpg
+          keyring: /usr/share/keyrings/cloudflare-main.gpg
+          state: present
+      - name: add cloudflare repository
+        apt_repository:
+          repo: 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared jammy main'
+          state: present
+      - name: Install cloudflared
+        apt:
+          update_cache: yes
+          name: cloudflared
+          state: present
+      - name: Create the tunnel credentials file for cloudflared.
+        copy:
+          dest: "/etc/cloudflared/cert.json"
+          content: |
+            {
+              "AccountTag"   : "{{ account | quote }}",
+              "TunnelID"     : "{{ tunnel_id | quote }}",
+              "TunnelName"   : "{{ tunnel_name | quote }}",
+              "TunnelSecret" : "{{ secret | quote }}"
+            }
+      - name: Start the cloudflared service.
+        systemd:
+          name: cloudflared
+          state: started
+          enabled: true
+          masked: no
+    - name: Create the cloudflared configuration file
+      copy:
+        dest: "/etc/cloudflared/config.yml"
+        content: |
+          tunnel: "{{ tunnel_id }}"
+          credentials-file: /etc/cloudflared/cert.json
+          logfile: /var/log/cloudflared.log
+          loglevel: info
+          autoupdate-freq: 24h
+          ingress:
+            - hostname: "{{ host_name }}-ssh.{{ zone }}"
+              service: ssh://0.0.0.0:22
+            - hostname: "{{ host_name }}-portainer.{{ zone }}"
+              service: https://0.0.0.0:9443
+              originRequest:                                                              
+                noTLSVerify: true
+            - hostname: "{{ host_name }}-portainerapi.{{ zone }}"
+              service: https://0.0.0.0:8000
+              originRequest:                                                              
+                noTLSVerify: true
+            - hostname: "{{ host_name }}-status.{{ zone }}"
+              service: http://0.0.0.0:8080
+            - hostname: "{{ host_name }}-decoder.{{ zone }}"
+              service: http://0.0.0.0:8081
+            - service: http_status:404

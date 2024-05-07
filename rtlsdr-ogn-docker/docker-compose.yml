@@ -1,0 +1,12 @@
+services:
+  receiver:
+    build: .                                                # Build the image from the Dockerfile in the current directory
+    restart: always
+    platform: linux/arm64
+    volumes:
+      - /var/local/ogn-config.json:/opt/rtlsdr-ogn/ogn-config.json   # Configuration file
+    devices:    
+      - '/dev/bus/usb:/dev/bus/usb'                         # USB devices
+    ports:
+      - "8080:8080"                                         # HTTP port for ogn-rf status page
+      - "8081:8081"                                         # HTTP port for ogn-decoder status page
